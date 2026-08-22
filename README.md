@@ -115,8 +115,9 @@ uses a consistent pointing-hand cursor.
 
 ### Visual settings
 
-All five visual settings are editable live from the right-click popup and
+All five visual settings are editable from the right-click popup and
 persist natively. See [Settings](#settings).
+
 
 ### Resource efficiency
 
@@ -173,7 +174,10 @@ at 100 % saturation, so the default configuration pays nothing for it.
 Commit-on-release settings avoid delegate recreation, image redecoding,
 effect churn, and whole-bar relayout during slider movement.
 
+## Requirements
 
+- Omarchy Quattro
+- No additional runtime dependencies
 
 
 ## Removal
