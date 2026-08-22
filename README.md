@@ -19,6 +19,14 @@ title. Lightweight, native Quickshell/QML, no daemons, no polling.
 
 ![Interactive +N overflow](assets/overflow.gif)
 
+## Installation
+
+Install Yet Another Active Window directly with Omarchy:
+
+```bash
+omarchy plugin add https://github.com/ncc001/yet-another-active-window.git --enable
+```
+
 
 ## Features
 
@@ -165,13 +173,7 @@ at 100 % saturation, so the default configuration pays nothing for it.
 Commit-on-release settings avoid delegate recreation, image redecoding,
 effect churn, and whole-bar relayout during slider movement.
 
-## Installation
 
-Install Yet Another Active Window directly with Omarchy:
-
-```bash
-omarchy plugin add https://github.com/ncc001/yet-another-active-window.git --enable
-```
 
 
 ## Removal
@@ -186,20 +188,6 @@ omarchy plugin remove ncc.yet-another-active-window
 Inspired in part by [omarchy-active-window](https://github.com/crmne/omarchy-active-window)
 by Carmine Paolino. Yet Another Active Window is an independent implementation
 with a different multi-window architecture and feature set.
-
-This plugin is an independent implementation that goes substantially further:
-
-- multiple windows instead of a single active-window pill
-- monitor/workspace filtering per bar instance
-- stable browser-tab ordering with append behavior
-- adaptive `+N` overflow with an interactive hidden-window popup
-- marquee scrolling for overflowing titles
-- inactive text window previews
-- generic Omarchy/Chromium web-app matching
-- a shared batched PID fallback process
-- native full-entry click-target integration for cursor reliability
-- commit-on-release settings performance
-- reset-to-defaults
 
 ## License
 
