@@ -110,10 +110,9 @@ uses a consistent pointing-hand cursor.
 All five visual settings are editable live from the right-click popup and
 persist natively. See [Settings](#settings).
 
-### Performance
+### Resource efficiency
 
-Deliberately low-resource by design — see
-[Performance](#performance) for what this plugin refuses to do.
+Deliberately low-resource by design — see [Performance](#performance) for what this plugin refuses to do.
 
 ## Settings
 
@@ -168,13 +167,14 @@ effect churn, and whole-bar relayout during slider movement.
 
 ## Installation
 
-Yet Another Active Window is currently a local Omarchy plugin. Place the
-repository folder under `~/.config/omarchy/plugins/` and reference it from
-your shell configuration's bar layout, e.g.:
+Install Yet Another Active Window directly with Omarchy:
+
+```bash
+omarchy plugin add https://github.com/ncc001/yet-another-active-window.git --enable
+```
 
 ```json
-{ "id": "ncc.yet-another-active-window" }
-```
+{ "id": "ncc.yet-another-active-window" }```
 
 ## Validation / Development
 
