@@ -1,0 +1,8 @@
+# Editor temporary files
+*~
+*.swp
+.directory
+
+# Compiled QML/JS caches from local tooling runs
+*.qmlc
+*.jsc
