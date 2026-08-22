@@ -173,38 +173,11 @@ Install Yet Another Active Window directly with Omarchy:
 omarchy plugin add https://github.com/ncc001/yet-another-active-window.git --enable
 ```
 
-```json
-{ "id": "ncc.yet-another-active-window" }```
+## Acknowledgements
 
-## Validation / Development
-
-```sh
-omarchy plugin validate .
-/usr/lib/qt6/bin/qmllint \
-  -I /usr/lib/qt6/qml \
-  -I /usr/share/omarchy/shell \
-  BarWidget.qml
-```
-
-Note: `qmllint` may emit warnings about unresolved `qs.*` modules when run
-outside the shell environment (missing tooling metadata for Omarchy/Quickshell
-types). These are environmental and do not indicate runtime problems;
-`omarchy plugin validate` and actual runtime behavior are authoritative.
-
-## Inspiration and attribution
-
-Yet Another Active Window studied
-[crmne/omarchy-active-window](https://github.com/crmne/omarchy-active-window)
-by Carmine Paolino as an important functional/reference source during design.
-It informed ideas and patterns around:
-
-- desktop-entry/icon resolution
-- StartupWMClass matching
-- executable fallback concepts
-- icon saturation
-- icon sizing
-- title width handling
-- Omarchy inline settings
+Inspired in part by [omarchy-active-window](https://github.com/crmne/omarchy-active-window)
+by Carmine Paolino. Yet Another Active Window is an independent implementation
+with a different multi-window architecture and feature set.
 
 This plugin is an independent implementation that goes substantially further:
 
@@ -220,15 +193,8 @@ This plugin is an independent implementation that goes substantially further:
 - commit-on-release settings performance
 - reset-to-defaults
 
-No source code was copied; thank you, Carmine, for the excellent reference
-(MIT licensed).
-
 ## License
 
 Yet Another Active Window is released under the MIT License — see
 [LICENSE](LICENSE). Copyright belongs to ncc.
 
-Third-party situation: omarchy-active-window inspired ideas and patterns but
-no source code from it is included in this repository, so no third-party
-notice file is required; its MIT license is acknowledged in the attribution
-above.
