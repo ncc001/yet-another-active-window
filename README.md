@@ -173,6 +173,14 @@ Install Yet Another Active Window directly with Omarchy:
 omarchy plugin add https://github.com/ncc001/yet-another-active-window.git --enable
 ```
 
+
+## Removal
+
+```bash
+omarchy plugin remove ncc.yet-another-active-window
+```
+
+
 ## Acknowledgements
 
 Inspired in part by [omarchy-active-window](https://github.com/crmne/omarchy-active-window)
