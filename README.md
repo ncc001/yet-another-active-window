@@ -1,5 +1,7 @@
 # Yet Another Active Window
 
+![Yet Another Active Window](preview.png)
+
 Yet another active window indicator for the Omarchy bar — because apparently
 the bar needed one more. This one behaves like a row of browser tabs: windows
 appear where they first opened, stay there, and only the focused tab grows a
@@ -7,9 +9,11 @@ title. Lightweight, native Quickshell/QML, no daemons, no polling.
 
 > Browser-tab-style window management for the Omarchy bar.
 
-## Preview
+## Screenshots
 
-![Yet Another Active Window](assets/bar.png)
+### Bar
+
+![Yet Another Active Window bar](assets/bar.png)
 
 ### Settings
 
@@ -18,6 +22,7 @@ title. Lightweight, native Quickshell/QML, no daemons, no polling.
 ### Interactive overflow
 
 ![Interactive +N overflow](assets/overflow.gif)
+
 
 ## Installation
 
