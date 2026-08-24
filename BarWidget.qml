@@ -66,8 +66,9 @@ BarWidget {
   // overflow distance: duration = distance / marqueeSpeed, so long titles
   // scroll proportionally longer.
   readonly property int marqueeStartPause: 850   // ms at the start before scrolling
-  readonly property int marqueeEndPause: 650    // ms at the end before reset
-  readonly property int marqueeSpeed: 40        // px per second
+  readonly property int marqueeEndPause: 650     // ms at the end before reset
+  readonly property int marqueeCyclePause: 6000  // ms idle between marquee cycles
+  readonly property int marqueeSpeed: 40         // px per second
 
   // ---- Monitor / workspace resolution -----------------------------------
   readonly property var barScreen:
@@ -900,6 +901,7 @@ BarWidget {
         }
         PauseAnimation { duration: root.marqueeEndPause }
         PropertyAction { target: titleText; property: "x"; value: 0 }
+        PauseAnimation { duration: root.marqueeCyclePause }
 
         // Reset cleanly whenever the animation stops (focus lost, text now
         // fits, vertical mode) so a stale offset never lingers.
