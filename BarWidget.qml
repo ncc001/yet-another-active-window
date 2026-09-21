@@ -10,7 +10,7 @@ import qs.Ui
 // Window list for the monitor + active workspace this bar instance lives on.
 //
 // Reactive Hyprland toplevel model with desktop-entry icons resolved through
-// the shell's shared AppLibrary, activate on left click, close on middle
+// Quickshell's native icon lookup, activate on left click, close on middle
 // click. Everything reacts through bindings — no polling, no dispatch.
 BarWidget {
   id: root
@@ -184,12 +184,25 @@ BarWidget {
 
   // ---- Icon resolution ---------------------------------------------------
   // Window identity (wayland appId + Hyprland class/initialClass) ->
-  // desktop entry -> icon URL, with the shell's shared AppLibrary as the
+  // desktop entry -> icon URL, with Quickshell's native icon lookup as the
   // final path resolver. No subprocesses: matching runs over Quickshell's
   // in-memory DesktopEntries.
   readonly property bool debugIcons: false
 
-  readonly property var appLibrary: bar && bar.shell ? bar.shell.appLibrary : null
+  // Bar plugins do not receive the shell's menu-only AppLibrary service.
+  function iconSource(icon) {
+    var value = String(icon || "")
+    if (!value) return ""
+    if (value.indexOf("file://") === 0 || value.indexOf("image://") === 0) return value
+    if (value.charAt(0) === "/") return Util.fileUrl(value)
+    return Quickshell.iconPath(value, true)
+  }
+
+  property int desktopEntriesRevision: 0
+  Connections {
+    target: DesktopEntries.applications
+    function onValuesChanged() { root.desktopEntriesRevision++ }
+  }
 
   function normalizeCandidate(value) {
     var v = String(value === undefined || value === null ? "" : value).trim()
@@ -222,7 +235,7 @@ BarWidget {
   // resolved URL and the revision it was resolved at. Mutated in place from
   // bindings — never reassigned — so hits cost one property read and
   // focus/title churn never rescans. Unresolved entries retry whenever the
-  // desktop-entry set or the AppLibrary icon index changes (see iconFor).
+  // desktop-entry model or PID lookup results change (see iconFor).
   property var iconCache: ({})
 
   function entryById(candidate) {
@@ -498,20 +511,19 @@ BarWidget {
     var identity = root.candidatesFor(toplevel)
     if (identity.names.length === 0) return ""
 
+    var revision = root.desktopEntriesRevision
     var cached = root.iconCache[identity.key]
-    // Resolved results are sticky; focus/title churn never rescans.
-    if (cached !== undefined && cached.url !== "") return cached.url
+    // Reuse successful matches until the desktop-entry model changes.
+    if (cached !== undefined && cached.entriesRevision === revision && cached.url !== "") return cached.url
 
     // Negative path. Register reactive dependencies on everything the
     // resolution depends on, then retry only once one of them actually
     // changed since the failed attempt (bounded work while they stream in).
     var entryCount = (DesktopEntries.applications.values || []).length
-    var lib = root.appLibrary
-    var indexKeys = lib ? Object.keys(lib.iconIndex || {}).length : 0
-    var rev = entryCount + "/" + indexKeys + "/" + root.pidCacheRev
+    var rev = revision + "/" + entryCount + "/" + root.pidCacheRev
 
     if (cached !== undefined && cached.rev === rev) return ""
-    if (entryCount === 0 || !lib) return ""
+    if (entryCount === 0) return ""
 
     var url = ""
     var entry = null
@@ -530,14 +542,15 @@ BarWidget {
     } catch (err) {
       if (root.debugIcons) console.warn("[ncc.window-icons] resolve error:", err)
     }
-    if (entry) url = String(lib.iconSource(entry.icon))
+    if (entry) url = root.iconSource(entry.icon)
 
     root.iconCache[identity.key] = {
       url: url,
       entryId: entry ? String(entry.id) : "",
       appName: entry ? String(entry.name || "") : "",
       names: identity.names,
-      rev: rev
+      rev: rev,
+      entriesRevision: revision
     }
     if (root.debugIcons) {
       console.warn("[ncc.window-icons] appId=" + identity.key.split("|")[0]
@@ -700,8 +713,8 @@ BarWidget {
   // Cache invalidation rides on the reactive dependency iconFor() holds on
   // DesktopEntries.applications.values (the model's valuesChanged notify,
   // verified against the installed Quickshell): every entry-set change
-  // re-evaluates the icon bindings, positive results return from cache and
-  // stale negatives retry once per new set size. No extra signal plumbing.
+  // re-evaluates the icon bindings. The revision counter also invalidates
+  // cached matches when the model changes without changing its size.
 
   Item {
     anchors.fill: parent
@@ -827,6 +840,7 @@ BarWidget {
       readonly property string iconUrl: entry.win ? root.iconFor(entry.win) : ""
 
       Image {
+        id: appIcon
         anchors.centerIn: parent
         visible: parent.iconUrl.length > 0
         width: root.configuredIconSize
@@ -851,7 +865,7 @@ BarWidget {
 
       Text {
         anchors.fill: parent
-        visible: parent.iconUrl.length === 0
+        visible: parent.iconUrl.length === 0 || appIcon.status === Image.Error
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
         textFormat: Text.PlainText
@@ -1141,6 +1155,7 @@ BarWidget {
       anchors.bottom: parent.bottom
 
       Image {
+        id: overflowIcon
         anchors.centerIn: parent
         visible: overflowRow.iconUrl.length > 0
         width: Style.space(16)
@@ -1156,7 +1171,7 @@ BarWidget {
 
       Text {
         anchors.fill: parent
-        visible: overflowRow.iconUrl.length === 0
+        visible: overflowRow.iconUrl.length === 0 || overflowIcon.status === Image.Error
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
         textFormat: Text.PlainText
