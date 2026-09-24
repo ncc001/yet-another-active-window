@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Effects
 import Quickshell
-import Quickshell.Io
 import Quickshell.Hyprland
 import qs.Commons
 import qs.Ui
@@ -46,7 +45,7 @@ BarWidget {
   readonly property int configuredSaturation: clampInt(setting("iconSaturation", root.settingDefaults.iconSaturation), 0, 200, root.settingDefaults.iconSaturation)
   readonly property int configuredMaxWidth: clampInt(setting("maxWidth", root.settingDefaults.maxWidth), 160, 1000, root.settingDefaults.maxWidth)
   readonly property int configuredTitleWidth: clampInt(setting("focusedTitleMaxWidth", root.settingDefaults.focusedTitleMaxWidth), 40, 400, root.settingDefaults.focusedTitleMaxWidth)
-  readonly property int configuredSpacing: clampInt(setting("spacing", root.settingDefaults.spacing), 2, 12, root.settingDefaults.spacing)
+  readonly property int configuredSpacing: clampInt(setting("spacing", root.settingDefaults.spacing), 2, 8, root.settingDefaults.spacing)
 
   // MultiEffect saturation mapping: 0% -> -1 grayscale, 100% -> 0 original,
   // 200% -> +1 strongly oversaturated.
@@ -69,6 +68,12 @@ BarWidget {
   readonly property int marqueeEndPause: 650     // ms at the end before reset
   readonly property int marqueeCyclePause: 6000  // ms idle between marquee cycles
   readonly property int marqueeSpeed: 40         // px per second
+
+  // Effective icon size in vertical: adapts to leave room for title
+  // configuredIconSize is the maximum; we shrink down to min 12px if needed
+  readonly property int effectiveIconSize: root.vertical
+    ? Math.max(12, Math.min(root.configuredIconSize, root.barSize - 16))
+    : root.configuredIconSize
 
   // ---- Monitor / workspace resolution -----------------------------------
   readonly property var barScreen:
@@ -406,89 +411,6 @@ BarWidget {
     return root.uniqueEntryByIcon(matches)
   }
 
-  // ---- PID -> executable fallback (pass G) --------------------------------
-  // Last resort for identities no desktop-entry metadata explains: resolve
-  // /proc/<pid>/exe via ONE shared batched Process, then compare the
-  // executable basename against entry metadata already in memory. Results
-  // land in pidCache, which is REASSIGNED so bindings get real change
-  // notifications; pendingPids deduplicates concurrent requests. No timers,
-  // no polling, no per-window processes.
-  property var pidCache: ({})
-  property var pendingPids: ({})
-  property int pidCacheRev: 0
-
-  Process {
-    id: exeProbe
-
-    stdout: StdioCollector {
-      onStreamFinished: root.finishExeBatch(this.text)
-    }
-  }
-
-  function exeForPid(pid) {
-    var p = parseInt(pid, 10)
-    if (!p || p <= 0) return ""
-    var v = root.pidCache[p]
-    if (v !== undefined) return v // resolved basename or "" for unreadable
-    if (root.pendingPids[p] === undefined) {
-      root.pendingPids[p] = true
-      root.flushExeQueue()
-    }
-    return ""
-  }
-
-  function flushExeQueue() {
-    if (exeProbe.running) return
-    var script = ""
-    for (var key in root.pendingPids) {
-      var pid = parseInt(key, 10)
-      if (pid > 0)
-        script += 'printf "%s\\t%s\\n" "' + pid + '" "$(readlink /proc/' + pid + '/exe 2>/dev/null)"; '
-    }
-    if (script.length === 0) { root.pendingPids = ({}); return }
-    exeProbe.command = ["bash", "-c", script]
-    exeProbe.running = true
-  }
-
-  function finishExeBatch(text) {
-    var results = {}
-    var lines = String(text || "").split("\n")
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i]
-      var tab = line.indexOf("\t")
-      if (tab <= 0) continue
-      var exePath = line.slice(tab + 1)
-      var slash = exePath.lastIndexOf("/")
-      results[line.slice(0, tab)] = slash >= 0 ? exePath.slice(slash + 1) : exePath
-    }
-    var merged = Object.assign({}, root.pidCache)
-    for (var key in root.pendingPids) {
-      merged[key] = results[key] !== undefined ? results[key] : ""
-      delete root.pendingPids[key]
-    }
-    root.pidCache = merged
-    root.pidCacheRev++
-    if (Object.keys(root.pendingPids).length > 0) Qt.callLater(root.flushExeQueue)
-  }
-
-  function entryByExe(exeName) {
-    var want = String(exeName || "").toLowerCase()
-    if (want.length === 0) return null
-    var values = DesktopEntries.applications.values || []
-    var matches = []
-    for (var i = 0; i < values.length; i++) {
-      var e = values[i]
-      if (e.noDisplay) continue
-      var cmdBase = root.execBasename(e).toLowerCase().replace(/\.[a-z]+$/, "")
-      var idLower = String(e.id || "").toLowerCase().replace(/\.desktop$/, "")
-      var sc = String(e.startupClass || "").toLowerCase()
-      if (cmdBase === want || idLower === want || sc === want) {
-        if (!matches.some(function(prev) { return prev.id === e.id })) matches.push(e)
-      }
-    }
-    return root.uniqueEntryByIcon(matches)
-  }
-
   // Returns an icon URL ("" when unresolved), synchronously. Called from
   // Image.source bindings. Reading applications.values here registers a
   // reactive dependency on the desktop-entry set: Quickshell populates it
@@ -508,29 +430,48 @@ BarWidget {
     var entryCount = (DesktopEntries.applications.values || []).length
     var lib = root.appLibrary
     var indexKeys = lib ? Object.keys(lib.iconIndex || {}).length : 0
-    var rev = entryCount + "/" + indexKeys + "/" + root.pidCacheRev
+    var rev = entryCount + "/" + indexKeys
 
     if (cached !== undefined && cached.rev === rev) return ""
-    if (entryCount === 0 || !lib) return ""
+    if (entryCount === 0) return ""
 
     var url = ""
     var entry = null
     var reason = ""
-    var pid = toplevel && toplevel.lastIpcObject ? parseInt(toplevel.lastIpcObject.pid, 10) : 0
-    var exeName = ""
     try {
       entry = root.resolveEntry(identity.names, function(passed) { reason = passed })
-      if (!entry && pid > 0) {
-        exeName = root.exeForPid(pid) // may enqueue; "" while pending
-        if (exeName !== "") {
-          entry = root.entryByExe(exeName)
-          if (entry) reason = "pid-exe"
+      // Generic fallback for windows without a DesktopEntry:
+      // try the window's identity candidates as icon names directly.
+      if (!entry) {
+        for (var i = 0; i < identity.names.length; i++) {
+          var candidate = identity.names[i]
+          if (candidate.length === 0) continue
+          var iconUrl = String(Quickshell.iconPath(candidate, true))
+          if (iconUrl.length > 0) {
+            entry = { icon: candidate, name: candidate, id: "generic:" + candidate }
+            reason = "generic-identity"
+            url = iconUrl
+            break
+          }
+        }
+        // Final fallback: generic executable icon
+        if (!entry) {
+          entry = { icon: "application-x-executable", name: "Application", id: "generic:application-x-executable" }
+          reason = "generic-fallback"
+          url = String(Quickshell.iconPath("application-x-executable", true))
         }
       }
     } catch (err) {
       if (root.debugIcons) console.warn("[ncc.window-icons] resolve error:", err)
     }
-    if (entry) url = String(lib.iconSource(entry.icon))
+    if (entry && url.length === 0) {
+      var lib = root.appLibrary
+      if (lib && typeof lib.iconSource === "function") {
+        url = String(lib.iconSource(entry.icon))
+      } else {
+        url = String(Quickshell.iconPath(entry.icon, true))
+      }
+    }
 
     root.iconCache[identity.key] = {
       url: url,
@@ -542,8 +483,6 @@ BarWidget {
     if (root.debugIcons) {
       console.warn("[ncc.window-icons] appId=" + identity.key.split("|")[0]
         + " class=" + identity.names.join("/")
-        + " pid=" + pid
-        + " exe=" + exeName
         + " matchedDesktopId=" + (entry ? String(entry.id) : "<none>")
         + " matchReason=" + (reason || "unresolved")
         + " icon=" + (entry ? String(entry.icon) : "<none>")
@@ -726,7 +665,7 @@ BarWidget {
     Column {
       id: column
       visible: root.vertical
-      spacing: 2
+      spacing: root.vertical ? root.configuredSpacing : 2
 
       Repeater {
         model: root.vertical ? root.layout.visibleCount : 0
@@ -747,7 +686,7 @@ BarWidget {
     readonly property var win: index < root.visibleWindows.length ? root.visibleWindows[index] : null
     readonly property bool focused: win !== null && win === Hyprland.activeToplevel
     readonly property bool hovered: area.containsMouse
-    readonly property bool showTitle: !root.vertical && focused && root.layout.titleWidth > 0
+    readonly property bool showTitle: focused && (root.vertical || root.layout.titleWidth > 0)
     readonly property real glyphSlot: root.vertical ? width : root.slotSize
 
     // Bar integration contracts (same pattern as qs.Ui WidgetButton):
@@ -820,8 +759,10 @@ BarWidget {
 
     // Icon slot: resolved desktop-entry icon, or the slice-1 glyph fallback.
     Item {
-      width: entry.glyphSlot
-      height: parent.height
+      width: root.vertical ? parent.width : entry.glyphSlot
+      height: root.vertical ? root.effectiveIconSize + 4 : parent.height
+      x: root.vertical ? 0 : 0
+      y: root.vertical ? 0 : 0
       opacity: entry.focused ? 1.0 : 0.55
 
       readonly property string iconUrl: entry.win ? root.iconFor(entry.win) : ""
@@ -829,8 +770,8 @@ BarWidget {
       Image {
         anchors.centerIn: parent
         visible: parent.iconUrl.length > 0
-        width: root.configuredIconSize
-        height: root.configuredIconSize
+        width: root.vertical ? root.effectiveIconSize : root.configuredIconSize
+        height: root.vertical ? root.effectiveIconSize : root.configuredIconSize
         fillMode: Image.PreserveAspectFit
         asynchronous: true
         smooth: true
@@ -867,9 +808,10 @@ BarWidget {
     // because showTitle is focused-only.
     Item {
       id: titleClip
-      x: entry.glyphSlot
-      width: parent.width - entry.glyphSlot
-      height: parent.height
+      x: root.vertical ? 0 : entry.glyphSlot
+      y: root.vertical ? (root.effectiveIconSize + root.configuredSpacing) : 0
+      width: root.vertical ? parent.width : parent.width - entry.glyphSlot
+      height: root.vertical ? (parent.height - root.effectiveIconSize - root.configuredSpacing) : parent.height
       clip: true
       visible: entry.showTitle
 
@@ -879,16 +821,18 @@ BarWidget {
         id: titleText
         anchors.verticalCenter: parent.verticalCenter
         x: 0
+        y: 0
         textFormat: Text.PlainText
         text: entry.displayTitle
         color: Color.foreground
         font.pixelSize: Style.font.body
       }
 
+      // Horizontal marquee (works in both horizontal and vertical)
       SequentialAnimation {
         id: marquee
 
-        running: !root.vertical && entry.showTitle && titleClip.overflowing && !entry.hovered
+        running: entry.showTitle && titleClip.overflowing && !entry.hovered
         loops: Animation.Infinite
 
         PropertyAction { target: titleText; property: "x"; value: 0 }
@@ -1056,6 +1000,7 @@ BarWidget {
           root.draftMaxWidth = value
           root.saveSetting("maxWidth", value)
         }
+        visible: !root.vertical
       }
 
       SettingSlider {
@@ -1069,13 +1014,14 @@ BarWidget {
           root.draftTitleWidth = value
           root.saveSetting("focusedTitleMaxWidth", value)
         }
+        visible: !root.vertical
       }
 
       SettingSlider {
         label: "Spacing"
         suffix: "px"
         minimum: 2
-        maximum: 12
+        maximum: 8
         step: 1
         currentValue: root.draftSpacing
         onCommitted: function(value) {
