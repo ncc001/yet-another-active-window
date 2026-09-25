@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "ncc.yet-another-active-window",
   "name": "Yet Another Active Window",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "author": "ncc",
-  "description": "A lightweight browser-style window list for Omarchy with application icons, stable ordering, focused titles, marquee overflow, hover labels, and native visual settings.",
+  "description": "A lightweight browser-style window list for Omarchy with application icons, stable ordering, focused titles, marquee overflow, hover labels, native visual settings, and horizontal and vertical bar layout support.",
   "kinds": [
     "bar-widget"
   ],
@@ -13,7 +13,7 @@
   },
   "barWidget": {
     "displayName": "Yet Another Active Window",
-    "description": "A lightweight browser-style window list for Omarchy with application icons, stable ordering, focused titles, marquee overflow, hover labels, and native visual settings.",
+    "description": "A lightweight browser-style window list for Omarchy with application icons, stable ordering, focused titles, marquee overflow, hover labels, native visual settings, and horizontal and vertical bar layout support.",
     "category": "Compositor",
     "allowMultiple": false
   }

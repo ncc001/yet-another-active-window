@@ -5,7 +5,8 @@
 Yet another active window indicator for the Omarchy bar — because apparently
 the bar needed one more. This one behaves like a row of browser tabs: windows
 appear where they first opened, stay there, and only the focused tab grows a
-title. Lightweight, native Quickshell/QML, no daemons, no polling.
+title. Lightweight, native Quickshell/QML, no daemons, no polling, with support
+for both horizontal and vertical bar layouts.
 
 > Browser-tab-style window management for the Omarchy bar.
 
@@ -34,6 +35,15 @@ omarchy plugin add https://github.com/ncc001/yet-another-active-window.git --ena
 
 
 ## Features
+
+### Horizontal and vertical layouts
+
+- Supports both **horizontal and vertical Omarchy bar layouts**.
+- In vertical mode, window entries adapt their layout so the application icon
+  remains visible above the focused title.
+- The title marquee works in both orientations, including overflowing focused
+  window titles.
+- Vertical spacing and icon sizing adapt to the available bar space.
 
 ### Window management
 
