@@ -16,9 +16,6 @@ for both horizontal and vertical bar layouts.
 
 ![Yet Another Active Window bar](assets/bar.png)
 
-### Vertical bar
-
-![Yet Another Active Window vertical layout](assets/vertical.png)
 
 ### Settings
 
@@ -27,6 +24,11 @@ for both horizontal and vertical bar layouts.
 ### Interactive overflow
 
 ![Interactive +N overflow](assets/overflow.gif)
+
+### Vertical bar
+
+![Yet Another Active Window vertical layout](assets/vertical.png)
+
 
 
 ## Installation
