@@ -16,6 +16,10 @@ for both horizontal and vertical bar layouts.
 
 ![Yet Another Active Window bar](assets/bar.png)
 
+### Vertical bar
+
+![Yet Another Active Window vertical layout](assets/vertical.png)
+
 ### Settings
 
 ![Window Settings](assets/settings.png)
