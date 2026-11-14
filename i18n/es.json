@@ -1,0 +1,9 @@
+{
+  "settings.title": "AJUSTES DE VENTANAS",
+  "settings.iconSize": "Tamaño de iconos",
+  "settings.iconSaturation": "Saturación de iconos",
+  "settings.maximumWidth": "Ancho máximo del widget",
+  "settings.focusedTitleWidth": "Ancho del título enfocado",
+  "settings.spacing": "Espaciado",
+  "settings.reset": "Restablecer valores"
+}

@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v1.2.0 - 2026-11-13
+
+### Added
+- Middle-button drag reordering for visible window entries. A middle click
+  without dragging still closes the window, and hidden windows retain their
+  relative order.
+- English and Spanish settings catalogs through Omarchy's live translation
+  service.
+
+### Changed
+- Generic icon fallback now resolves web-app host segments and stable initial
+  window titles without subprocesses or application-specific rules.
+
+### Fixed
+- Generic icon results retry when Omarchy's application library becomes
+  available or its application set changes.
+- Horizontal overflow now budgets the real `+N` indicator width.
+- Long overflow lists now scroll within the available screen height.
+- The title marquee now respects Omarchy's reduced-motion setting.
+
 ## v1.1.0
 
 ### Added
@@ -39,5 +59,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cleaned up ~90 lines of dead code (PID/executable fallback machinery)
 - Simplified icon resolution path with fewer branches
 - Single marquee implementation for both orientations
-
-## [Unreleased]

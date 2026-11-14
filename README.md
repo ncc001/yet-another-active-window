@@ -63,6 +63,9 @@ omarchy plugin add https://github.com/ncc001/yet-another-active-window.git --ena
 - Focus changes **never reorder** entries.
 - Closed windows simply disappear; remaining entries keep their relative
   order.
+- **Middle-button drag** reorders visible windows like browser tabs while
+  preserving the order of windows currently behind `+N`. A middle click
+  without dragging continues to close the window.
 - The **focused window remains visible** even when `+N` overflow is active —
   it swaps into the last visible slot instead of hiding or jumping to the
   front.
@@ -97,11 +100,14 @@ omarchy plugin add https://github.com/ncc001/yet-another-active-window.git --ena
 - Generic **Omarchy/Chromium web-app matching**: URL hosts embedded in a
   launcher's command line are matched against host segments Chromium embeds
   in the window class — apps like WhatsApp and HEY resolve generically.
-- A conservative PID → `/proc/<pid>/exe` fallback exists for difficult
-  unresolved identities.
-- Resolved matches are cached per window identity; ambiguous or unknown
-  applications fall back safely to a neutral placeholder glyph rather than
-  showing an incorrect icon. There are no hard-coded app-specific fixes.
+- If no desktop entry matches, generic identity-derived icon names already
+  installed on the system are tried. This includes web-app host segments and
+  the stable initial window title used by wrapped terminal applications. A
+  generic executable icon remains the final fallback.
+- Confirmed matches are cached per window identity; generic fallbacks are
+  retried when desktop entries or the shared application library change.
+  Unknown applications use a neutral placeholder glyph when no icon is
+  available. There are no hard-coded app-specific fixes.
   Firefox and Foot are runtime-tested examples of plain desktop-entry
   resolution; generic resolution with safe fallback is the goal, not a
   guarantee that literally every application resolves.
@@ -152,7 +158,7 @@ Deliberately low-resource by design — see [Performance](#performance) for what
 | Icon saturation | 100 % | 0–200 % | `0 %` grayscale, `100 %` original, `200 %` oversaturated |
 | Maximum widget width | 480 px | 160–1000 px | Hard cap for the whole window list |
 | Focused-title width | 120 px | 40–400 px | Maximum title space for the focused entry |
-| Spacing | 4 px | 2–12 px | Gap between entries |
+| Spacing | 4 px | 2–8 px | Gap between entries |
 
 Sliders are draft-based: while dragging, only the numeric value updates; the
 actual change **commits when the slider is released**, so dragging never
@@ -167,6 +173,7 @@ operation.
 |---|---|
 | Left click window | Focus that window |
 | Middle click window | Close that window |
+| Middle-button drag window | Reorder visible windows |
 | Right click window | Open visual settings |
 | Hover inactive window | Text window preview tooltip |
 | Hover active window | No tooltip (title/marquee already shown) |
@@ -184,16 +191,22 @@ This plugin deliberately avoids:
 - daemons
 - runtime `hyprctl` calls
 - screenshot previews or any background capture
-- per-window subprocesses
+- subprocesses
 
 Everything reacts through Hyprland's models via QML bindings. Positive icon
-matches are cached per window identity, so normal warm operation spawns no
-subprocesses. Exactly **one shared process** exists, used only as an
-exceptional fallback to read `/proc/<pid>/exe` when no desktop-entry metadata
-explains a window identity. The saturation effect layer is disabled entirely
-at 100 % saturation, so the default configuration pays nothing for it.
+matches are cached per window identity, and generic icon fallbacks are retried
+only when the available desktop entries or application library change. The
+saturation effect layer is disabled entirely at 100 % saturation, so the
+default configuration pays nothing for it.
 Commit-on-release settings avoid delegate recreation, image redecoding,
 effect churn, and whole-bar relayout during slider movement.
+
+## Development checks
+
+```bash
+node tests/widget-logic.test.mjs
+omarchy plugin validate .
+```
 
 ## Requirements
 
@@ -218,4 +231,3 @@ with a different multi-window architecture and feature set.
 
 Yet Another Active Window is released under the MIT License — see
 [LICENSE](LICENSE). Copyright belongs to ncc.
-

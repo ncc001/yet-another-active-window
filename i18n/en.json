@@ -1,0 +1,9 @@
+{
+  "settings.title": "WINDOW SETTINGS",
+  "settings.iconSize": "Icon size",
+  "settings.iconSaturation": "Icon saturation",
+  "settings.maximumWidth": "Maximum widget width",
+  "settings.focusedTitleWidth": "Focused title width",
+  "settings.spacing": "Spacing",
+  "settings.reset": "Reset to defaults"
+}

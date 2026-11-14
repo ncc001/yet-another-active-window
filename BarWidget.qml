@@ -4,35 +4,24 @@ import QtQuick.Effects
 import Quickshell
 import Quickshell.Hyprland
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
-// Window list for the monitor + active workspace this bar instance lives on.
-//
-// Reactive Hyprland toplevel model with desktop-entry icons resolved through
-// the shell's shared AppLibrary, activate on left click, close on middle
-// click. Everything reacts through bindings — no polling, no dispatch.
 BarWidget {
   id: root
   moduleName: "ncc.yet-another-active-window"
 
-  // ---- Width contract --------------------------------------------------
-  // root.implicitWidth is what the ModuleSlot consumes; it is derived from
-  // computeLayout() and can never exceed maxWidth. Delegates read fixed slot
-  // sizes; only the focused entry takes leftover budget, so there is no
-  // width <-> implicitWidth feedback loop and no Layout.* attached props.
-  //
-  // ---- Visual settings -------------------------------------------------
-  // Native inline shell.json settings (setting() from the BarWidget base,
-  // persisted via bar.shell.updateEntryInline), clamped on read so malformed
-  // values can never break the widget. One normalized source of truth per
-  // setting; delegates read the configured* properties, never raw setting().
+  Commons.Translations {
+    id: strings
+    directory: Qt.resolvedUrl("i18n")
+  }
+
+  // Settings are clamped before they reach layout or effects.
   function clampInt(value, min, max, fallback) {
     var n = Math.round(Number(value))
     return isNaN(n) ? fallback : Math.max(min, Math.min(max, n))
   }
 
-  // Canonical visual defaults — single source used both by the configured*
-  // readers below and by the "Reset to defaults" action.
   readonly property var settingDefaults: ({
     iconSize: 18,
     iconSaturation: 100,
@@ -47,13 +36,8 @@ BarWidget {
   readonly property int configuredTitleWidth: clampInt(setting("focusedTitleMaxWidth", root.settingDefaults.focusedTitleMaxWidth), 40, 400, root.settingDefaults.focusedTitleMaxWidth)
   readonly property int configuredSpacing: clampInt(setting("spacing", root.settingDefaults.spacing), 2, 8, root.settingDefaults.spacing)
 
-  // MultiEffect saturation mapping: 0% -> -1 grayscale, 100% -> 0 original,
-  // 200% -> +1 strongly oversaturated.
   readonly property real saturationEffect: (configuredSaturation - 100) / 100
 
-  // Derived geometry: the icon slot wraps the icon with fixed horizontal
-  // padding, so changing icon size feeds deterministically into the layout
-  // budget and overflow math below.
   readonly property int maxWidth: configuredMaxWidth
   readonly property int slotSize: configuredIconSize + 10
   readonly property int entrySpacing: configuredSpacing
@@ -61,21 +45,15 @@ BarWidget {
   readonly property int indicatorSlot: 32
   readonly property int verticalMaxEntries: 10
 
-  // Marquee internals (no settings UI yet). Duration is derived from the
-  // overflow distance: duration = distance / marqueeSpeed, so long titles
-  // scroll proportionally longer.
   readonly property int marqueeStartPause: 850   // ms at the start before scrolling
   readonly property int marqueeEndPause: 650     // ms at the end before reset
   readonly property int marqueeCyclePause: 6000  // ms idle between marquee cycles
   readonly property int marqueeSpeed: 40         // px per second
 
-  // Effective icon size in vertical: adapts to leave room for title
-  // configuredIconSize is the maximum; we shrink down to min 12px if needed
   readonly property int effectiveIconSize: root.vertical
     ? Math.max(12, Math.min(root.configuredIconSize, root.barSize - 16))
     : root.configuredIconSize
 
-  // ---- Monitor / workspace resolution -----------------------------------
   readonly property var barScreen:
     root.QsWindow && root.QsWindow.window
       ? root.QsWindow.window.screen
@@ -87,11 +65,6 @@ BarWidget {
   readonly property var activeWorkspace:
     hMonitor ? hMonitor.activeWorkspace : null
 
-  // ---- Reactive window model ---------------------------------------------
-  // Reading toplevels.values plus each toplevel's monitor/workspace inside
-  // this binding tracks opens, closes, workspace moves and monitor moves.
-  // Focus and title changes flow through Hyprland.activeToplevel reads in
-  // delegates and toplevel.title reads below.
   readonly property var windows: {
     var result = []
     if (!hMonitor || !activeWorkspace || activeWorkspace.id <= 0) return result
@@ -107,18 +80,10 @@ BarWidget {
     return result
   }
 
-  // ---- Stable display order -------------------------------------------------
-  // Browser-tab-like ordering: windows appear where they first appeared and
-  // stay there. windowOrder stores toplevel object references (stable for
-  // the lifetime of each window); membership comes reactively from the
-  // filtered `windows` list, never from focus or titles.
   property var windowOrder: []
 
   Component.onCompleted: root.syncWindowOrder()
 
-  // Sync stored order with current reality: drop dead windows, append
-  // unseen ones. Runs only when the filtered membership changes — focus
-  // and title churn never reach this path.
   function syncWindowOrder() {
     var live = Hyprland.toplevels.values || []
     var order = root.windowOrder
@@ -138,11 +103,42 @@ BarWidget {
 
   onWindowsChanged: root.syncWindowOrder()
 
-  // Rendered entries: the first visibleCount windows in stable order. If
-  // the focused window would fall outside them, it replaces ONLY the last
-  // visible slot — it never jumps to the front. Hidden count (+N) is
-  // unaffected by the swap. Recomputing this on focus changes touches no
-  // stored ordering state.
+  // Toplevel object identity stays stable for the window lifetime.
+  function moveWindowRelative(source, target, after) {
+    if (!source || !target || source === target) return
+    var next = root.windowOrder.slice()
+    var sourceIndex = next.indexOf(source)
+    if (sourceIndex === -1) return
+    next.splice(sourceIndex, 1)
+    var targetIndex = next.indexOf(target)
+    if (targetIndex === -1) return
+    next.splice(targetIndex + (after ? 1 : 0), 0, source)
+
+    var changed = next.length !== root.windowOrder.length
+    for (var i = 0; i < next.length && !changed; i++)
+      if (next[i] !== root.windowOrder[i]) changed = true
+    if (changed) root.windowOrder = next
+  }
+
+  function reorderVisibleWindow(source, point) {
+    var repeater = root.vertical ? verticalEntries : horizontalEntries
+    var axis = root.vertical ? point.y : point.x
+    var last = null
+
+    for (var i = 0; i < repeater.count; i++) {
+      var item = repeater.itemAt(i)
+      if (!item || !item.win || item.win === source) continue
+      var center = item.mapToItem(root, item.width / 2, item.height / 2)
+      var itemAxis = root.vertical ? center.y : center.x
+      if (axis < itemAxis) {
+        root.moveWindowRelative(source, item.win, false)
+        return
+      }
+      last = item.win
+    }
+    if (last) root.moveWindowRelative(source, last, true)
+  }
+
   readonly property var visibleWindows: {
     var candidates = []
     for (var i = 0; i < root.windowOrder.length; i++) {
@@ -151,15 +147,13 @@ BarWidget {
     var count = Math.min(root.layout.visibleCount, candidates.length)
     var out = candidates.slice(0, count)
     var focused = Hyprland.activeToplevel
+    // Keep an overflowed focused window in the final visible slot.
     if (focused !== null && count > 0 && out.indexOf(focused) === -1 && candidates.indexOf(focused) !== -1) {
       out[count - 1] = focused
     }
     return out
   }
 
-  // Deterministic width budget: fixed slots first, focused title gets what
-  // is left (shrinks first as content approaches maxWidth), then trailing
-  // entries drop into "+N". Always terminates at one visible entry.
   readonly property var layout: computeLayout(windows.length)
 
   function computeLayout(count) {
@@ -173,7 +167,9 @@ BarWidget {
     while (true) {
       var hidden = count - visible
       var slots = visible + (hidden > 0 ? 1 : 0)
-      var fixed = slots * root.slotSize + Math.max(0, slots - 1) * root.entrySpacing
+      var fixed = visible * root.slotSize
+        + (hidden > 0 ? root.indicatorSlot : 0)
+        + Math.max(0, slots - 1) * root.entrySpacing
       var titleBudget = root.maxWidth - fixed
       if (titleBudget >= 0)
         return { visibleCount: visible, hidden: hidden, titleWidth: Math.min(titleBudget, root.maxTitleWidth) }
@@ -187,11 +183,6 @@ BarWidget {
     return cls.length > 0 ? cls.charAt(0).toUpperCase() : "\u25A1"
   }
 
-  // ---- Icon resolution ---------------------------------------------------
-  // Window identity (wayland appId + Hyprland class/initialClass) ->
-  // desktop entry -> icon URL, with the shell's shared AppLibrary as the
-  // final path resolver. No subprocesses: matching runs over Quickshell's
-  // in-memory DesktopEntries.
   readonly property bool debugIcons: false
 
   readonly property var appLibrary: bar && bar.shell ? bar.shell.appLibrary : null
@@ -202,9 +193,6 @@ BarWidget {
     return v
   }
 
-  // Ordered unique identity candidates for one window: appId, class,
-  // initialClass. Originals are kept in the cache entry for debugging and
-  // for the future PWA slice; matching itself is case-insensitive.
   function candidatesFor(toplevel) {
     var meta = toplevel && toplevel.lastIpcObject ? toplevel.lastIpcObject : {}
     var appId = toplevel && toplevel.wayland ? root.normalizeCandidate(toplevel.wayland.appId) : ""
@@ -221,13 +209,23 @@ BarWidget {
     return { names: names, key: [appId, cls, initial].join("|") }
   }
 
-  // Cache keyed by the full identity tuple "appId|class|initialClass", not
-  // by class alone: windows can share a class while differing in appId
-  // (Chromium/PWA). Values carry the desktop-entry id, both match keys, the
-  // resolved URL and the revision it was resolved at. Mutated in place from
-  // bindings — never reassigned — so hits cost one property read and
-  // focus/title churn never rescans. Unresolved entries retry whenever the
-  // desktop-entry set or the AppLibrary icon index changes (see iconFor).
+  function fallbackIconNames(toplevel, identityNames) {
+    var out = []
+    var push = function(value) {
+      var name = root.normalizeCandidate(value)
+      if (name.length > 0 && out.indexOf(name) === -1) out.push(name)
+    }
+
+    for (var i = 0; i < identityNames.length; i++) push(identityNames[i])
+
+    var segments = root.candidateSegments(identityNames)
+    for (var j = 0; j < segments.length; j++) push(segments[j])
+
+    var meta = toplevel && toplevel.lastIpcObject ? toplevel.lastIpcObject : {}
+    push(meta.initialTitle)
+    return out
+  }
+
   property var iconCache: ({})
 
   function entryById(candidate) {
@@ -249,11 +247,6 @@ BarWidget {
     return slash >= 0 ? cmd.slice(slash + 1) : cmd
   }
 
-  // Several desktop entries may describe the SAME application (client /
-  // server / daemon launcher variants share Exec and Icon, e.g. foot and
-  // foot-server). For icon purposes a set of matches is unambiguous when
-  // every member resolves to the same icon name; otherwise stay unresolved
-  // — placeholder beats wrong icon.
   function uniqueEntryByIcon(matches) {
     if (matches.length === 0) return null
     var icon = String(matches[0].icon || "")
@@ -263,15 +256,6 @@ BarWidget {
     return matches[0]
   }
 
-  // Generic matcher over the normalized candidate set:
-  //   A. exact DesktopEntry id
-  //   B. exact StartupWMClass (case-insensitive)
-  //   C. case-insensitive DesktopEntry id
-  //   D. Quickshell heuristicLookup
-  //   E. conservative unique Name / executable-basename match
-  //   F. web-app / command-line match (URL hosts + handler-name words)
-  // NoDisplay entries never win a match; ambiguity loses on purpose.
-  // `onPass` (optional) receives the winning pass name for diagnostics.
   function resolveEntry(names, onPass) {
     var hit = function(entry, pass) {
       if (onPass) onPass(pass)
@@ -331,15 +315,6 @@ BarWidget {
     return null
   }
 
-  // ---- Web-app / command-line matching (pass F) ---------------------------
-  // Omarchy web apps launch `chromium --app=<url>` from a desktop entry
-  // whose Exec carries the same URL, and Chromium embeds that URL's host
-  // verbatim in the window class ("chrome-web.whatsapp.com__-Default").
-  // Matching is therefore generic: URL hosts found in an entry's command
-  // line matched by substring into the window identity, plus distinctive
-  // words of the command basename (handler scripts such as
-  // "...-handler-hey" carry no URL) matched against embedded host segments.
-  // Ambiguity loses on purpose: placeholder beats wrong icon.
   readonly property string webAppStopWords:
     "|www|com|net|org|gov|edu|int|io|co|dev|app|web|mail|html|htm|default|profile|index|login|auth|mobile|new|home|main|site|"
 
@@ -358,8 +333,6 @@ BarWidget {
     return out
   }
 
-  // Dot-separated segments of dotted tokens embedded in the candidates,
-  // TLD excluded. "chrome-app.hey.com__-Default" -> ["hey"].
   function candidateSegments(candidates) {
     var segs = []
     for (var i = 0; i < candidates.length; i++) {
@@ -411,28 +384,27 @@ BarWidget {
     return root.uniqueEntryByIcon(matches)
   }
 
-  // Returns an icon URL ("" when unresolved), synchronously. Called from
-  // Image.source bindings. Reading applications.values here registers a
-  // reactive dependency on the desktop-entry set: Quickshell populates it
-  // ASYNCHRONOUSLY after startup, so every population change re-evaluates
-  // this binding and unresolved identities retry against the fuller set.
+  property int appListRevision: 0
+
+  // The plugin API exposes appsChanged, not AppLibrary's internal icon index.
+  Connections {
+    target: root.appLibrary
+    function onAppsChanged() { root.appListRevision++ }
+  }
+
   function iconFor(toplevel) {
     var identity = root.candidatesFor(toplevel)
     if (identity.names.length === 0) return ""
 
     var cached = root.iconCache[identity.key]
-    // Resolved results are sticky; focus/title churn never rescans.
-    if (cached !== undefined && cached.url !== "") return cached.url
+    // Desktop-entry matches are stable; generic fallbacks are provisional.
+    if (cached !== undefined && cached.url !== "" && !cached.provisional) return cached.url
 
-    // Negative path. Register reactive dependencies on everything the
-    // resolution depends on, then retry only once one of them actually
-    // changed since the failed attempt (bounded work while they stream in).
     var entryCount = (DesktopEntries.applications.values || []).length
     var lib = root.appLibrary
-    var indexKeys = lib ? Object.keys(lib.iconIndex || {}).length : 0
-    var rev = entryCount + "/" + indexKeys
+    var rev = entryCount + "/" + root.appListRevision + "/" + (lib ? 1 : 0)
 
-    if (cached !== undefined && cached.rev === rev) return ""
+    if (cached !== undefined && cached.rev === rev) return cached.url
     if (entryCount === 0) return ""
 
     var url = ""
@@ -440,23 +412,21 @@ BarWidget {
     var reason = ""
     try {
       entry = root.resolveEntry(identity.names, function(passed) { reason = passed })
-      // Generic fallback for windows without a DesktopEntry:
-      // try the window's identity candidates as icon names directly.
       if (!entry) {
-        for (var i = 0; i < identity.names.length; i++) {
-          var candidate = identity.names[i]
+        var iconNames = root.fallbackIconNames(toplevel, identity.names)
+        for (var i = 0; i < iconNames.length; i++) {
+          var candidate = iconNames[i]
           if (candidate.length === 0) continue
           var iconUrl = String(Quickshell.iconPath(candidate, true))
           if (iconUrl.length > 0) {
-            entry = { icon: candidate, name: candidate, id: "generic:" + candidate }
+            entry = { icon: candidate, name: "", id: "generic:" + candidate }
             reason = "generic-identity"
             url = iconUrl
             break
           }
         }
-        // Final fallback: generic executable icon
         if (!entry) {
-          entry = { icon: "application-x-executable", name: "Application", id: "generic:application-x-executable" }
+          entry = { icon: "application-x-executable", name: "", id: "generic:application-x-executable" }
           reason = "generic-fallback"
           url = String(Quickshell.iconPath("application-x-executable", true))
         }
@@ -478,6 +448,7 @@ BarWidget {
       entryId: entry ? String(entry.id) : "",
       appName: entry ? String(entry.name || "") : "",
       names: identity.names,
+      provisional: reason === "generic-identity" || reason === "generic-fallback",
       rev: rev
     }
     if (root.debugIcons) {
@@ -491,13 +462,6 @@ BarWidget {
     return url
   }
 
-  // ---- Focused title formatting -------------------------------------------
-  // "<title> – <application>" when the application name adds information.
-  // The application display name comes from the desktop entry the icon
-  // resolver already matched (so web apps report "WhatsApp"/"HEY", never
-  // "Chromium"). Conservative dedup: if the raw window title already
-  // contains the application name, it is shown unchanged — no rewriting of
-  // arbitrary titles, and never "... – Mozilla Firefox – Mozilla Firefox".
   function formatTitle(toplevel) {
     if (!toplevel) return ""
     var raw = String(toplevel.title || "").replace(/\s+/g, " ").trim()
@@ -514,18 +478,10 @@ BarWidget {
     return raw + " \u2013 " + app
   }
 
-  // ---- Settings panel ------------------------------------------------------
-  // Popup contract expected by Bar.findPanelWidget: open()/close()/opened
-  // on the widget root. Right-click anywhere on an entry toggles it; the
-  // popup is a native qs.Ui PopupCard whose built-in HyprlandFocusGrab
-  // (triggerMode defaults to "click") closes it whenever a click lands
-  // outside the popup and the bar window.
   property bool settingsOpen: false
   readonly property bool opened: settingsOpen
 
   function open() {
-    // The two popups must never coexist; releasing the overflow popup first
-    // lets its onOpenChanged free the shared bar popout slot cleanly.
     overflowOpen = false
     syncDraftSettings()
     settingsOpen = true
@@ -538,12 +494,6 @@ BarWidget {
     else open()
   }
 
-  // Panel-local drafts: slider movement writes ONLY these — one int write
-  // plus a numeric label refresh per event. The injected settings object,
-  // the layout math, icon geometry and icon effects are never touched while
-  // dragging. Drafts are re-seeded from the committed settings on every
-  // open, so values from an abandoned drag can never leak into the next
-  // opening.
   property int draftIconSize: configuredIconSize
   property int draftSaturation: configuredSaturation
   property int draftMaxWidth: configuredMaxWidth
@@ -558,10 +508,6 @@ BarWidget {
     draftSpacing = configuredSpacing
   }
 
-  // Applies ONE settled value to the local injected settings for instant
-  // feedback, then persists through the native inline-settings write, after
-  // which the shell's applySettingsDelta path patches every per-monitor
-  // instance in place. Called once per gesture, never during movement.
   function previewSetting(key, value) {
     var next = Object.assign({}, settings || {})
     next[key] = Math.round(value)
@@ -574,11 +520,6 @@ BarWidget {
       bar.shell.updateEntryInline(moduleName, settings)
   }
 
-  // Reset is ONE discrete operation: one settings-object update, one draft
-  // re-sync, exactly one persistence call. Sliders follow the re-seeded
-  // drafts; no per-slider commits run and no live-preview churn occurs.
-  // Defaults are persisted as explicit values (never key deletion), with
-  // every unrelated field of the widget entry preserved.
   function resetSettings() {
     var next = Object.assign({}, settings || {})
     for (var key in root.settingDefaults)
@@ -589,16 +530,8 @@ BarWidget {
       bar.shell.updateEntryInline(moduleName, settings)
   }
 
-
-  // ---- Overflow popup --------------------------------------------------------
-  // A second view of the windows already hidden by the width algorithm.
   property bool overflowOpen: false
 
-  // Windows currently hidden behind "+N", in the underlying stable order:
-  // stable-order candidates minus whatever is visible right now. Because the
-  // focused-visibility swap places the focused window inside visibleWindows,
-  // it can never appear twice. Derived from existing reactive state only —
-  // no extra model, no extra work while closed beyond this small list.
   readonly property var hiddenWindows: {
     var out = []
     for (var i = 0; i < windowOrder.length; i++) {
@@ -609,8 +542,6 @@ BarWidget {
     return out
   }
 
-  // If enough space becomes available (or windows close), overflow ceases to
-  // exist and the popup closes with it.
   onHiddenWindowsChanged: {
     if (overflowOpen && hiddenWindows.length === 0)
       overflowOpen = false
@@ -625,8 +556,6 @@ BarWidget {
     overflowOpen = true
   }
 
-  // Dedicated close target so the PopupCard's native outside-click dismissal
-  // routes to the overflow state instead of the settings state.
   QtObject {
     id: overflowOwner
 
@@ -635,12 +564,6 @@ BarWidget {
 
   implicitWidth: vertical ? Style.bar.sizeVertical : row.implicitWidth
   implicitHeight: vertical ? column.implicitHeight : barSize
-
-  // Cache invalidation rides on the reactive dependency iconFor() holds on
-  // DesktopEntries.applications.values (the model's valuesChanged notify,
-  // verified against the installed Quickshell): every entry-set change
-  // re-evaluates the icon bindings, positive results return from cache and
-  // stale negatives retry once per new set size. No extra signal plumbing.
 
   Item {
     anchors.fill: parent
@@ -652,6 +575,7 @@ BarWidget {
       spacing: root.entrySpacing
 
       Repeater {
+        id: horizontalEntries
         model: root.layout.visibleCount
         delegate: Entry {}
       }
@@ -668,6 +592,7 @@ BarWidget {
       spacing: root.vertical ? root.configuredSpacing : 2
 
       Repeater {
+        id: verticalEntries
         model: root.vertical ? root.layout.visibleCount : 0
         delegate: Entry {}
       }
@@ -689,28 +614,15 @@ BarWidget {
     readonly property bool showTitle: focused && (root.vertical || root.layout.titleWidth > 0)
     readonly property real glyphSlot: root.vertical ? width : root.slotSize
 
-    // Bar integration contracts (same pattern as qs.Ui WidgetButton):
-    // - interactive: transient empty layout slots must never become click
-    //   targets or react to the pointer.
-    // - tooltipHovered: read by Bar.targetTooltipHovered()/its watchdog;
-    //   gating on !settingsOpen also suppresses tooltips while the popup
-    //   is open instead of stacking UI over it.
     readonly property bool interactive: win !== null
     readonly property bool tooltipHovered: entry.interactive && !root.settingsOpen && area.containsMouse
 
-    // Ensures the identity resolution ran (cache warm) before formatting;
-    // also registers the same reactive deps as the icon so a late desktop-
-    // entry population refreshes the app-name suffix too.
     readonly property string displayTitle: {
       if (!win) return ""
       root.iconFor(win)
       return root.formatTitle(win)
     }
 
-    // Single action path shared by the bar's central left-click dispatcher
-    // (ModuleSlot.modulePointer -> pressModuleClickTarget) and this entry's
-    // own MouseArea, which is the direct path for middle/right buttons and
-    // the fallback when no target is clickable.
     function triggerPress(button) {
       if (root.bar && root.bar.hideTooltip) root.bar.hideTooltip(entry)
       if (!entry.win || !entry.win.wayland) return
@@ -719,17 +631,11 @@ BarWidget {
       } else if (button === Qt.RightButton) {
         root.togglePanel()
       } else {
-        // Any interaction with our own entries also dismisses the settings
-        // popup, so it never lingers over normal use.
         if (root.settingsOpen) root.close()
         entry.win.wayland.activate()
       }
     }
 
-    // Register as a bar click target so ModuleSlot's topmost pointer area
-    // resolves the pointing-hand cursor over this whole entry and forwards
-    // left clicks here. The bar is injected by injectProps after delegates
-    // complete, so registration re-syncs whenever it appears.
     property var registeredBar: null
 
     function syncClickRegistration() {
@@ -757,7 +663,6 @@ BarWidget {
       color: Util.alpha(Color.foreground, entry.hovered ? 0.16 : (entry.focused ? 0.08 : 0))
     }
 
-    // Icon slot: resolved desktop-entry icon, or the slice-1 glyph fallback.
     Item {
       width: root.vertical ? parent.width : entry.glyphSlot
       height: root.vertical ? root.effectiveIconSize + 4 : parent.height
@@ -776,13 +681,10 @@ BarWidget {
         asynchronous: true
         smooth: true
         mipmap: true
-        // Decode at physical pixels — a logical-size decode leaves PNG icons
-        // upscaled and blurry on HiDPI displays (same as the menu's rows).
+        // Avoid upscaling a logical-pixel decode on HiDPI screens.
         sourceSize.width: width * Screen.devicePixelRatio
         sourceSize.height: height * Screen.devicePixelRatio
         source: parent.iconUrl.length > 0 ? parent.iconUrl : ""
-        // Saturation applies to application icons only. At 100% the effect
-        // layer stays disabled so there is no extra GPU cost.
         layer.enabled: root.saturationEffect !== 0
         layer.smooth: true
         layer.effect: MultiEffect {
@@ -802,10 +704,6 @@ BarWidget {
       }
     }
 
-    // Focused title viewport: fixed width from the layout budget (never the
-    // text's implicit width — no feedback into root sizing), clipped, and
-    // the only marquee in the widget. Inactive entries never enter here
-    // because showTitle is focused-only.
     Item {
       id: titleClip
       x: root.vertical ? 0 : entry.glyphSlot
@@ -828,51 +726,84 @@ BarWidget {
         font.pixelSize: Style.font.body
       }
 
-      // Horizontal marquee (works in both horizontal and vertical)
       SequentialAnimation {
         id: marquee
 
-        running: entry.showTitle && titleClip.overflowing && !entry.hovered
+        running: entry.showTitle && titleClip.overflowing && !entry.hovered && !Style.reduceMotion
         loops: Animation.Infinite
 
         PropertyAction { target: titleText; property: "x"; value: 0 }
-        PauseAnimation { duration: root.marqueeStartPause }
+        PauseAnimation { duration: Style.duration(root.marqueeStartPause) }
         NumberAnimation {
           target: titleText
           property: "x"
           to: -(titleText.contentWidth - titleClip.width)
-          duration: Math.max(300, Math.round((titleText.contentWidth - titleClip.width) * 1000 / root.marqueeSpeed))
+          duration: Style.duration(Math.max(300, Math.round((titleText.contentWidth - titleClip.width) * 1000 / root.marqueeSpeed)))
         }
-        PauseAnimation { duration: root.marqueeEndPause }
+        PauseAnimation { duration: Style.duration(root.marqueeEndPause) }
         PropertyAction { target: titleText; property: "x"; value: 0 }
-        PauseAnimation { duration: root.marqueeCyclePause }
+        PauseAnimation { duration: Style.duration(root.marqueeCyclePause) }
 
-        // Reset cleanly whenever the animation stops (focus lost, text now
-        // fits, vertical mode) so a stale offset never lingers.
         onRunningChanged: if (!running) titleText.x = 0
       }
     }
 
     MouseArea {
       id: area
+      // Omarchy reserves left-drag for moving the whole widget.
+      property real reorderPressX: 0
+      property real reorderPressY: 0
+      property var reorderWindow: null
+      property bool reordering: false
+      property bool suppressMiddleClick: false
+
       anchors.fill: parent
       acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
       enabled: entry.interactive
       hoverEnabled: true
-      cursorShape: Qt.PointingHandCursor
+      cursorShape: reordering ? Qt.ClosedHandCursor : Qt.PointingHandCursor
 
-      // Left clicks normally arrive through the bar's central dispatcher,
-      // which consumes them once a target is found; this handler is then a
-      // no-op fallback for transient unregistered states and the direct
-      // path for middle/right, which modulePointer does not accept.
-      onClicked: function(mouse) { entry.triggerPress(mouse.button) }
+      onPressed: function(mouse) {
+        if (mouse.button !== Qt.MiddleButton) return
+        reorderPressX = mouse.x
+        reorderPressY = mouse.y
+        reorderWindow = entry.win
+        reordering = false
+        suppressMiddleClick = false
+      }
 
-      // Bar-hosted tooltip: inactive entries are icon-only, so the full
-      // formatted title is new information there. The active entry always
-      // shows its title/marquee — that marquee is already the mechanism for
-      // reading overflowing text, so it never gets a redundant tooltip.
-      // showTooltip itself refuses while settings are open (see
-      // tooltipHovered), so nothing stacks over the popup.
+      onPositionChanged: function(mouse) {
+        if (!(mouse.buttons & Qt.MiddleButton) || !reorderWindow) return
+        var distance = Math.abs(mouse.x - reorderPressX) + Math.abs(mouse.y - reorderPressY)
+        if (!reordering && distance >= Style.space(4)) {
+          reordering = true
+          suppressMiddleClick = true
+          if (root.bar && root.bar.hideTooltip) root.bar.hideTooltip(entry)
+        }
+        if (reordering)
+          root.reorderVisibleWindow(reorderWindow, mapToItem(root, mouse.x, mouse.y))
+      }
+
+      onReleased: function(mouse) {
+        if (mouse.button !== Qt.MiddleButton) return
+        reordering = false
+        reorderWindow = null
+      }
+
+      onCanceled: {
+        reordering = false
+        reorderWindow = null
+        suppressMiddleClick = false
+      }
+
+      onClicked: function(mouse) {
+        if (mouse.button === Qt.MiddleButton && suppressMiddleClick) {
+          suppressMiddleClick = false
+          return
+        }
+        entry.triggerPress(mouse.button)
+      }
+
       onEntered: {
         if (!entry.win || !root.bar || !root.bar.showTooltip) return
         if (root.settingsOpen) return
@@ -892,9 +823,6 @@ BarWidget {
     width: root.vertical ? root.barSize : root.indicatorSlot
     height: root.vertical ? root.barSize : root.barSize
 
-    // Click-target registration keeps the pointing-hand cursor consistent
-    // over the indicator. Left click toggles the hidden-windows popup; right
-    // click keeps opening settings. Middle click is intentionally a no-op.
     function triggerPress(button) {
       if (button === Qt.RightButton) root.togglePanel()
       else if (button === Qt.LeftButton) root.toggleOverflow()
@@ -935,7 +863,6 @@ BarWidget {
     }
   }
 
-  // ---- Settings popup --------------------------------------------------------
   PopupCard {
     id: settingsPopup
     anchorItem: root
@@ -951,7 +878,7 @@ BarWidget {
       spacing: Style.space(10)
 
       Text {
-        text: "WINDOW SETTINGS"
+        text: strings.t("settings.title")
         textFormat: Text.PlainText
         color: root.bar ? root.bar.foreground : Color.foreground
         font.family: root.bar ? root.bar.fontFamily : Style.font.family
@@ -964,7 +891,7 @@ BarWidget {
       }
 
       SettingSlider {
-        label: "Icon size"
+        label: strings.t("settings.iconSize")
         suffix: "px"
         minimum: 12
         maximum: 24
@@ -977,7 +904,7 @@ BarWidget {
       }
 
       SettingSlider {
-        label: "Icon saturation"
+        label: strings.t("settings.iconSaturation")
         suffix: "%"
         minimum: 0
         maximum: 200
@@ -990,7 +917,7 @@ BarWidget {
       }
 
       SettingSlider {
-        label: "Maximum widget width"
+        label: strings.t("settings.maximumWidth")
         suffix: "px"
         minimum: 160
         maximum: 1000
@@ -1004,7 +931,7 @@ BarWidget {
       }
 
       SettingSlider {
-        label: "Focused title width"
+        label: strings.t("settings.focusedTitleWidth")
         suffix: "px"
         minimum: 40
         maximum: 400
@@ -1018,7 +945,7 @@ BarWidget {
       }
 
       SettingSlider {
-        label: "Spacing"
+        label: strings.t("settings.spacing")
         suffix: "px"
         minimum: 2
         maximum: 8
@@ -1032,17 +959,12 @@ BarWidget {
 
       Button {
         width: settingsColumn.width
-        text: "Reset to defaults"
+        text: strings.t("settings.reset")
         onClicked: root.resetSettings()
       }
     }
   }
 
-  // ---- Overflow popup --------------------------------------------------------
-  // Lists ONLY the windows currently hidden behind "+N", in stable order.
-  // Anchored to the widget like the settings popup; the two popups are
-  // mutually exclusive by construction (open()/toggleOverflow()) and share
-  // the bar's popout coordination for any remaining path.
   PopupCard {
     id: overflowPopup
     anchorItem: root
@@ -1052,14 +974,25 @@ BarWidget {
     contentWidth: fittedContentWidth(Style.space(260))
     contentHeight: fittedContentHeight(overflowColumn.implicitHeight)
 
-    Column {
-      id: overflowColumn
+    Flickable {
+      id: overflowFlick
       anchors.fill: parent
-      spacing: Style.space(4)
+      contentWidth: width
+      contentHeight: overflowColumn.implicitHeight
+      boundsBehavior: Flickable.StopAtBounds
+      flickableDirection: Flickable.VerticalFlick
+      interactive: contentHeight > height
+      clip: true
 
-      Repeater {
-        model: root.hiddenWindows
-        delegate: OverflowRow {}
+      Column {
+        id: overflowColumn
+        width: overflowFlick.width
+        spacing: Style.space(4)
+
+        Repeater {
+          model: root.hiddenWindows
+          delegate: OverflowRow {}
+        }
       }
     }
   }
@@ -1078,8 +1011,6 @@ BarWidget {
     radius: 4
     color: Util.alpha(Color.foreground, hovered ? 0.14 : 0)
 
-    // Icon and title reuse the existing resolver/formatter — no new
-    // resolution architecture.
     Item {
       id: rowIconSlot
       width: Style.space(24)
@@ -1133,8 +1064,6 @@ BarWidget {
       onClicked: function(mouse) {
         if (!overflowRow.win || !overflowRow.win.wayland) return
         if (mouse.button === Qt.MiddleButton) {
-          // The list updates reactively once the window closes; the popup
-          // stays open unless nothing remains hidden.
           overflowRow.win.wayland.close()
           return
         }
@@ -1193,8 +1122,6 @@ BarWidget {
       step: sliderSetting.step
       integer: true
       value: sliderSetting.currentValue
-      // Movement drives only the slider's own liveValue (knob position and
-      // the numeric label above). The widget is touched exactly once, here.
       onReleased: function(value) { sliderSetting.committed(Math.round(value)) }
     }
   }
